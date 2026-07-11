@@ -962,6 +962,15 @@ impl<'a, R: Render> Visitor<'a> for Printer<'a, R> {
                 self.visit_type_name(tn)?;
                 self.text(")")
             }
+            UnaryExpression::VaArg { ap, type_name } => {
+                self.text("__builtin_va_arg")?;
+                self.text("(")?;
+                self.visit_expression(ap)?;
+                self.text(",")?;
+                self.space()?;
+                self.visit_type_name(type_name)?;
+                self.text(")")
+            }
         }
     }
 

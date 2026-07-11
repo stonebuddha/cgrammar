@@ -3,9 +3,6 @@ tests/test-cases/en-cpp-reference-c/cCode362.c
 tests/test-cases/en-cpp-reference-c/cCode415.c
 tests/test-cases/en-cpp-reference-c/cCode414.c
 tests/test-cases/en-cpp-reference-c/cCode425.c
-tests/test-cases/en-cpp-reference-c/cCode428.c
-tests/test-cases/en-cpp-reference-c/cCode429.c
-tests/test-cases/en-cpp-reference-c/cCode430.c
 tests/test-cases/unit-tests/_Lengthof.c
 tests/test-cases/unit-tests/flow_if_throw.c
 tests/test-cases/unit-tests/flow_trow.c

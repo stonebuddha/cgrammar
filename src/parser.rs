@@ -231,6 +231,17 @@ pub fn unary_expression<'a>() -> impl Parser<'a, Tokens<'a>, UnaryExpression, Ex
     let unary = unary_operator.then(cast_expression());
 
     let sizeof_expr = keyword("sizeof").ignore_then(unary_expression()).map(Box::new);
+
+    let va_arg = keyword("__builtin_va_arg").ignore_then(
+        assignment_expression()
+            .map(Brand::into_inner)
+            .map(Box::new)
+            .then_ignore(punctuator(Punctuator::Comma))
+            .then(type_name())
+            .parenthesized()
+            .map(|(ap, type_name)| UnaryExpression::VaArg { ap, type_name }),
+    );
+
     let type_name = type_name()
         .parenthesized()
         .recover_with(recover_parenthesized(TypeName::Error));
@@ -249,6 +260,7 @@ pub fn unary_expression<'a>() -> impl Parser<'a, Tokens<'a>, UnaryExpression, Ex
         sizeof_expr.map(UnaryExpression::Sizeof),
         sizeof_type.map(UnaryExpression::SizeofType),
         alignof_type.map(UnaryExpression::Alignof),
+        va_arg, // must be before postfix, else __builtin_va_arg parses as a function call
         postfix.map(UnaryExpression::Postfix),
     ))
     .labelled("unary expression")

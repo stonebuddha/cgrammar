@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Parse `__builtin_va_arg(ap, type)` (the preprocessed form of the `va_arg` macro) as a new `UnaryExpression::VaArg` variant.
+
 ## [0.9.1](https://github.com/Wybxc/cgrammar/compare/v0.9.0...v0.9.1) - 2026-03-17
 
 ### Added

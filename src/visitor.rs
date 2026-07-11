@@ -905,6 +905,10 @@ pub fn walk_unary_expression<'a, V: Visitor<'a> + ?Sized>(v: &mut V, u: &'a Unar
         }
         UnaryExpression::Sizeof(inner) => v.visit_unary_expression(inner),
         UnaryExpression::SizeofType(tn) | UnaryExpression::Alignof(tn) => v.visit_type_name(tn),
+        UnaryExpression::VaArg { ap, type_name } => {
+            tr!(v.visit_expression(ap));
+            v.visit_type_name(type_name)
+        }
     }
 }
 
@@ -2155,6 +2159,10 @@ pub fn walk_unary_expression_mut<'a, V: VisitorMut<'a> + ?Sized>(v: &mut V, u: &
         }
         UnaryExpression::Sizeof(inner) => v.visit_unary_expression_mut(inner),
         UnaryExpression::SizeofType(tn) | UnaryExpression::Alignof(tn) => v.visit_type_name_mut(tn),
+        UnaryExpression::VaArg { ap, type_name } => {
+            tr!(v.visit_expression_mut(ap));
+            v.visit_type_name_mut(type_name)
+        }
     }
 }
 

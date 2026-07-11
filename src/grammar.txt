@@ -330,6 +330,7 @@ hexadecimal-digit-sequence:
   sizeof unary-expression
   sizeof ( type-name )
   alignof ( type-name )
+  __builtin_va_arg ( assignment-expression , type-name )
 
 (6.5.3) unary-operator: one of
    & * + - ~ !

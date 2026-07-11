@@ -420,6 +420,10 @@ pub enum UnaryExpression {
     Sizeof(Box<UnaryExpression>),
     SizeofType(TypeName),
     Alignof(TypeName),
+    VaArg {
+        ap: Box<Expression>,
+        type_name: TypeName,
+    },
 }
 
 /// Unary operators (6.5.3)
