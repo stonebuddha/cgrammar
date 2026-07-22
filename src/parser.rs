@@ -335,31 +335,33 @@ pub fn binary_expression<'a>() -> impl Parser<'a, Tokens<'a>, Brand<Expression, 
     choice((
         #[cfg(feature = "quasi-quote")]
         interpolation(),
-        choice((
-            cast_expression().map_with(|c, e| Expression::new(ExpressionKind::Cast(c), e.span())),
-            unary_expression().map_with(|u, e| Expression::new(ExpressionKind::Unary(u), e.span())),
-            postfix_expression().map_with(|p, e| Expression::new(ExpressionKind::Postfix(p), e.span())),
-        ))
-        .pratt((
-            infix(left(1000 - 30), op!(Star), binary!(Multiply)),
-            infix(left(1000 - 30), op!(Slash), binary!(Divide)),
-            infix(left(1000 - 30), op!(Percent), binary!(Modulo)),
-            infix(left(1000 - 40), op!(Plus), binary!(Add)),
-            infix(left(1000 - 40), op!(Minus), binary!(Subtract)),
-            infix(left(1000 - 50), op!(LeftShift), binary!(LeftShift)),
-            infix(left(1000 - 50), op!(RightShift), binary!(RightShift)),
-            infix(left(1000 - 60), op!(Less), binary!(Less)),
-            infix(left(1000 - 60), op!(LessEqual), binary!(LessEqual)),
-            infix(left(1000 - 60), op!(Greater), binary!(Greater)),
-            infix(left(1000 - 60), op!(GreaterEqual), binary!(GreaterEqual)),
-            infix(left(1000 - 70), op!(Equal), binary!(Equal)),
-            infix(left(1000 - 70), op!(NotEqual), binary!(NotEqual)),
-            infix(left(1000 - 80), op!(Ampersand), binary!(BitwiseAnd)),
-            infix(left(1000 - 90), op!(Caret), binary!(BitwiseXor)),
-            infix(left(1000 - 100), op!(Pipe), binary!(BitwiseOr)),
-            infix(left(1000 - 110), op!(LogicalAnd), binary!(LogicalAnd)),
-            infix(left(1000 - 120), op!(LogicalOr), binary!(LogicalOr)),
-        )),
+        // `cast_expression` already subsumes unary-expression (as
+        // `CastExpression::Unary`), which in turn subsumes postfix-expression, so
+        // it succeeds on exactly the inputs those two would. Listing them as
+        // further alternatives only bought a redundant re-descent whenever the
+        // whole atom failed.
+        cast_expression()
+            .map_with(|c, e| Expression::new(ExpressionKind::Cast(c), e.span()))
+            .pratt((
+                infix(left(1000 - 30), op!(Star), binary!(Multiply)),
+                infix(left(1000 - 30), op!(Slash), binary!(Divide)),
+                infix(left(1000 - 30), op!(Percent), binary!(Modulo)),
+                infix(left(1000 - 40), op!(Plus), binary!(Add)),
+                infix(left(1000 - 40), op!(Minus), binary!(Subtract)),
+                infix(left(1000 - 50), op!(LeftShift), binary!(LeftShift)),
+                infix(left(1000 - 50), op!(RightShift), binary!(RightShift)),
+                infix(left(1000 - 60), op!(Less), binary!(Less)),
+                infix(left(1000 - 60), op!(LessEqual), binary!(LessEqual)),
+                infix(left(1000 - 60), op!(Greater), binary!(Greater)),
+                infix(left(1000 - 60), op!(GreaterEqual), binary!(GreaterEqual)),
+                infix(left(1000 - 70), op!(Equal), binary!(Equal)),
+                infix(left(1000 - 70), op!(NotEqual), binary!(NotEqual)),
+                infix(left(1000 - 80), op!(Ampersand), binary!(BitwiseAnd)),
+                infix(left(1000 - 90), op!(Caret), binary!(BitwiseXor)),
+                infix(left(1000 - 100), op!(Pipe), binary!(BitwiseOr)),
+                infix(left(1000 - 110), op!(LogicalAnd), binary!(LogicalAnd)),
+                infix(left(1000 - 120), op!(LogicalOr), binary!(LogicalOr)),
+            )),
     ))
     .map(Brand::new)
     .labelled("binary expression")
@@ -370,25 +372,33 @@ pub fn binary_expression<'a>() -> impl Parser<'a, Tokens<'a>, Brand<Expression, 
 #[apply(cached)]
 pub fn conditional_expression<'a>()
 -> impl Parser<'a, Tokens<'a>, Brand<Expression, ConditionalExpression>, Extra<'a>> + Clone {
+    // `binary-expression` is the common prefix of both productions, so parse it
+    // once and take the `? :` tail optionally. Spelled as a `choice`, the tail-less
+    // case -- by far the common one -- parsed its operand twice: once for the
+    // alternative that then failed to find a `?`, and once for the fallback.
+    let tail = punctuator(Punctuator::Question)
+        .ignore_then(expression())
+        .then_ignore(punctuator(Punctuator::Colon))
+        .then(conditional_expression().map(Brand::into_inner));
+
     choice((
         #[cfg(feature = "quasi-quote")]
         interpolation(),
-        binary_expression()
-            .then_ignore(punctuator(Punctuator::Question))
-            .then(expression())
-            .then_ignore(punctuator(Punctuator::Colon))
-            .then(conditional_expression().map(Brand::into_inner))
-            .map_with(|((condition, then_expr), else_expr), extra| {
-                Expression::new(
+        binary_expression().map(Brand::into_inner).then(tail.or_not()).map_with(
+            |(condition, tail), extra| match tail {
+                Some((then_expr, else_expr)) => Expression::new(
                     ExpressionKind::Conditional(ConditionalExpression {
-                        condition: Box::new(condition.into_inner()),
+                        condition: Box::new(condition),
                         then_expr: Box::new(then_expr),
                         else_expr: Box::new(else_expr),
                     }),
                     extra.span(),
-                )
-            }),
-        binary_expression().map(Brand::into_inner),
+                ),
+                // Return the operand untouched, span included, exactly as the old
+                // fallback alternative did.
+                None => condition,
+            },
+        ),
     ))
     .map(Brand::new)
     .labelled("conditional expression")
@@ -412,24 +422,52 @@ pub fn assignment_expression<'a>()
         Token::Punctuator(Punctuator::LeftShiftAssign) => AssignmentOperator::LeftShiftAssign,
         Token::Punctuator(Punctuator::RightShiftAssign) => AssignmentOperator::RightShiftAssign,
     };
+    // A conditional-expression is the common prefix of both productions (an
+    // assignment's left operand is a unary-expression, which it subsumes), so parse
+    // it once and take the operator and right operand optionally. Spelled as a
+    // `choice`, a non-assignment parsed its operand three times: once for the
+    // alternative that then failed to find an operator, and twice more inside
+    // `conditional_expression`.
+    let tail = assigment_opeartor.then(assignment_expression().map(Brand::into_inner));
+
+    /// Re-impose the grammar's restriction that an assignment's left operand is a
+    /// unary-expression, and restore the `ExpressionKind::Unary` spelling that the
+    /// old `unary_expression()` alternative produced -- left-factoring routes the
+    /// operand through `binary_expression`'s atom, which wraps it as
+    /// `Cast(Unary(..))`. Consumers match on the `Unary` spelling to recognize an
+    /// assignment's target, so the wrapper has to come back off.
+    fn unary_lhs(expression: Expression) -> Option<Expression> {
+        let span = expression.span;
+        let kind = match expression.kind {
+            ExpressionKind::Cast(CastExpression::Unary(u)) | ExpressionKind::Unary(u) => ExpressionKind::Unary(u),
+            ExpressionKind::Postfix(p) => ExpressionKind::Unary(UnaryExpression::Postfix(p)),
+            // Anything else (a binary, conditional or comma expression) is not a
+            // unary-expression and so is not assignable: `a + b = c`.
+            _ => return None,
+        };
+        Some(Expression::new(kind, span))
+    }
+
     choice((
         #[cfg(feature = "quasi-quote")]
         interpolation(),
-        unary_expression()
-            .map_with(|u, e| Expression::new(ExpressionKind::Unary(u), e.span()))
-            .then(assigment_opeartor)
-            .then(assignment_expression().map(Brand::into_inner))
-            .map_with(|((left, operator), right), extra| {
-                Expression::new(
+        conditional_expression()
+            .map(Brand::into_inner)
+            .then(tail.or_not())
+            .try_map_with(|(left, tail), extra| {
+                let Some((operator, right)) = tail else {
+                    return Ok(left);
+                };
+                let left = unary_lhs(left).ok_or_else(|| expected_found(["unary expression"], None, extra.span()))?;
+                Ok(Expression::new(
                     ExpressionKind::Assignment(AssignmentExpression {
                         operator,
                         left: Box::new(left),
                         right: Box::new(right),
                     }),
                     extra.span(),
-                )
+                ))
             }),
-        conditional_expression().map(Brand::into_inner),
     ))
     .map(Brand::new)
     .labelled("assignment expression")
