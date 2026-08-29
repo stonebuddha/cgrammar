@@ -644,16 +644,42 @@ impl<'a> Lexer<'a> {
         }
 
         if !is_pragma {
-            // Parse #line directive: # <line> "<file>"
-            let parts: Vec<&str> = directive.split_whitespace().collect();
-            if let [line, file, ..] = &parts[..]
-                && let Ok(line_num) = line.parse::<i32>()
+            // Parse #line directive: # <line> "<file>" [flags...]
+            // The filename is a C string literal: it may contain spaces and
+            // the escapes `\"` and `\\` (clang emits both), so it cannot be
+            // split on whitespace.
+            let directive = directive.trim_start();
+            // Both spellings: `# 3 "f"` (a marker) and `#line 3 "f"`.
+            let directive = directive.strip_prefix("line").unwrap_or(directive).trim_start();
+            if let Some((line_str, rest)) = directive.split_once(char::is_whitespace).or(Some((directive, "")))
+                && let Ok(line_num) = line_str.parse::<i32>()
             {
-                self.set_context(SourceContext {
-                    filename: file.trim_matches('"').to_string(),
-                    line_offset: self.lineno() - line_num,
-                    start_offset: self.cursor(),
-                });
+                let rest = rest.trim_start();
+                let filename = if let Some(quoted) = rest.strip_prefix('"') {
+                    let mut name = String::new();
+                    let mut chars = quoted.chars();
+                    loop {
+                        match chars.next() {
+                            None | Some('"') => break,
+                            Some('\\') => match chars.next() {
+                                Some(c) => name.push(c),
+                                None => break,
+                            },
+                            Some(c) => name.push(c),
+                        }
+                    }
+                    Some(name)
+                } else {
+                    // No quotes (a hand-written `#line 5 foo.c`): first token.
+                    rest.split_whitespace().next().map(str::to_string)
+                };
+                if let Some(filename) = filename {
+                    self.set_context(SourceContext {
+                        filename,
+                        line_offset: self.lineno() - line_num,
+                        start_offset: self.cursor(),
+                    });
+                }
             }
         }
 
